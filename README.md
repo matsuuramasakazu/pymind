@@ -1,0 +1,2 @@
+# pymind
+Antigravityのvibe codingを試しがてらpythonの標準ライブラリだけを使ってツリー構造のメモを書くアプリを作ってみた

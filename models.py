@@ -1,0 +1,71 @@
+import uuid
+from typing import List, Optional
+
+class Node:
+    """マインドマップの単一のトピックを表すクラス"""
+    def __init__(self, text: str, parent: Optional['Node'] = None):
+        self.id = str(uuid.uuid4())
+        self.text = text
+        self.parent = parent
+        self.children: List['Node'] = []
+        self.direction = None  # 'left' or 'right' (主にルートの子ノードで使用)
+        
+        # UI表示用のプロパティ
+        self.x = 0.0
+        self.y = 0.0
+        self.width = 100
+        self.height = 40
+
+    def add_child(self, text: str, direction: Optional[str] = None) -> 'Node':
+        child = Node(text, parent=self)
+        child.direction = direction
+        self.children.append(child)
+        return child
+
+    def remove_child(self, node: 'Node'):
+        if node in self.children:
+            self.children.remove(node)
+
+    def to_dict(self) -> dict:
+        """シリアライズ用の辞書変換"""
+        return {
+            "id": self.id,
+            "text": self.text,
+            "direction": self.direction,
+            "children": [child.to_dict() for child in self.children]
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict, parent: Optional['Node'] = None) -> 'Node':
+        """辞書からの復元"""
+        node = cls(data["text"], parent=parent)
+        node.id = data.get("id", str(uuid.uuid4()))
+        node.direction = data.get("direction")
+        for child_data in data.get("children", []):
+            child = cls.from_dict(child_data, parent=node)
+            node.children.append(child)
+        return node
+
+class MindMapModel:
+    """マインドマップ全体を管理するモデル"""
+    def __init__(self, root_text: str = "中心トピック"):
+        self.root = Node(root_text)
+
+    def find_node_by_id(self, node_id: str, current: Optional[Node] = None) -> Optional[Node]:
+        if current is None:
+            current = self.root
+        
+        if current.id == node_id:
+            return current
+        
+        for child in current.children:
+            found = self.find_node_by_id(node_id, child)
+            if found:
+                return found
+        return None
+
+    def save(self) -> dict:
+        return self.root.to_dict()
+
+    def load(self, data: dict):
+        self.root = Node.from_dict(data)

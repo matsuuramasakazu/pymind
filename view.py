@@ -30,6 +30,7 @@ class MindMapView:
         self.graphics = GraphicsEngine(self.canvas)
         self.selected_node: Node = self.model.root
         self.editing_entry = None # インライン編集用のウィジェット
+        self.drag_data = {} # ドラッグ＆ドロップ用データ
         
         # メニューバーの作成
         self._create_menu()
@@ -57,6 +58,11 @@ class MindMapView:
         self.first_render = True
         self.render()
 
+        # マウスイベントのバインド
+        self.canvas.bind("<Button-1>", self._on_canvas_click)
+        self.canvas.bind("<B1-Motion>", self.on_drag_motion)
+        self.canvas.bind("<ButtonRelease-1>", self.on_drag_drop)
+
     def on_mouse_wheel(self, event):
         self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
 
@@ -66,6 +72,121 @@ class MindMapView:
     def _on_canvas_click(self, event):
         if not self.editing_entry:
             self.canvas.focus_set()
+            
+            # 座標の取得（スクロール位置を考慮）
+            cx = self.canvas.canvasx(event.x)
+            cy = self.canvas.canvasy(event.y)
+            
+            print(f"DEBUG: Click at ({event.x}, {event.y}) -> Canvas ({cx}, {cy})")
+            
+            # クリックしたノードを選択状態にする
+            clicked_node = self.find_node_at(cx, cy)
+            
+            if clicked_node:
+                print(f"DEBUG: Node selected: {clicked_node.text}")
+                self.selected_node = clicked_node
+                self.render()
+                # ドラッグ開始の準備
+                self.on_drag_start(event)
+            else:
+                print("DEBUG: No node clicked")
+
+    def find_node_at(self, x, y):
+        """指定座標にあるノードを返す"""
+        # 矩形の当たり判定 (クリック範囲を少し広げる)
+        # find_overlapping は (x1, y1, x2, y2) で指定
+        padding = 10
+        items = self.canvas.find_overlapping(x-padding, y-padding, x+padding, y+padding)
+        for item_id in items:
+            tags = self.canvas.gettags(item_id)
+            if "node" in tags or "text" in tags:
+                # タグからnode_idを取得 (e.g., "node <uuid>")
+                for tag in tags:
+                    if tag not in ("node", "text", "current", "ghost"):
+                        node_id = tag
+                        return self.model.find_node_by_id(node_id)
+        return None
+
+    def on_drag_start(self, event):
+        if not self.selected_node: return
+        self.drag_data = {"item": self.selected_node, "x": event.x, "y": event.y, "dragging": False}
+
+    def on_drag_motion(self, event):
+        if not self.drag_data.get("item"): return
+        
+        # 一定以上動かしたらドラッグ開始とみなす
+        if not self.drag_data["dragging"]:
+            dx = abs(event.x - self.drag_data["x"])
+            dy = abs(event.y - self.drag_data["y"])
+            if dx > 5 or dy > 5:
+                self.drag_data["dragging"] = True
+                self.drag_data["ghost_id"] = self.canvas.create_rectangle(
+                    0, 0, 0, 0, outline="#0078d7", width=2, dash=(4, 4), tags="ghost"
+                )
+
+        if self.drag_data["dragging"]:
+            # ゴースト（枠線）の移動
+            node = self.drag_data["item"]
+            cx = self.canvas.canvasx(event.x)
+            cy = self.canvas.canvasy(event.y)
+            w, h = node.width, node.height
+            self.canvas.coords(self.drag_data["ghost_id"], cx - w/2, cy - h/2, cx + w/2, cy + h/2)
+
+    def on_drag_drop(self, event):
+        if not self.drag_data.get("dragging"):
+            # ドラッグしていなければクリック処理のみで終了
+            self.drag_data = {}
+            return
+
+        self.canvas.delete("ghost")
+        target_node = self.find_node_at(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
+        
+        dropped_node = self.drag_data["item"]
+        
+        if target_node and target_node != dropped_node:
+            # ドロップ可能かチェック (自分自身や子孫への移動は不可)
+            if not self.is_descendant(target_node, dropped_node):
+                 # ルートは移動不可
+                if dropped_node != self.model.root:
+                    dropped_node.move_to(target_node)
+                    
+                    # 方向の再計算と適用
+                    if target_node == self.model.root:
+                        # ルート直下に移動した場合、バランスを見て決定
+                        # move_to直後なので自分自身を除いてカウントしないと正確でない可能性があるが、
+                        # _get_balanced_direction は現状のリストを見る。
+                        # ここでは簡易的に、現在のリストから自分自身を除外してバランスを見る
+                        siblings = [c for c in self.model.root.children if c != dropped_node]
+                        right_count = len([c for c in siblings if c.direction != 'left'])
+                        left_count = len([c for c in siblings if c.direction == 'left'])
+                        new_direction = 'right' if right_count <= left_count else 'left'
+                        
+                        dropped_node.direction = new_direction
+                    else:
+                        # 親の方向を継承
+                        dropped_node.direction = target_node.direction
+                    
+                    # 子孫ノードにも新しい方向を適用
+                    self._update_direction_recursive(dropped_node, dropped_node.direction)
+                    
+                    self.render()
+
+    def _update_direction_recursive(self, node: Node, direction):
+        """ノードとその子孫の方向を再帰的に更新"""
+        node.direction = direction
+        for child in node.children:
+            self._update_direction_recursive(child, direction)
+        
+        self.drag_data = {}
+
+    def is_descendant(self, node, potential_ancestor):
+        """nodeがpotential_ancestorの子孫かどうかをチェック"""
+        curr = node
+        while curr:
+            if curr == potential_ancestor:
+                return True
+            curr = curr.parent
+        return False
 
     def _wrap_handler(self, func):
         """編集中は入力を無視し、かつイベントが他へ伝播しないようにする"""

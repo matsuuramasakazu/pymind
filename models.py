@@ -26,6 +26,19 @@ class Node:
         if node in self.children:
             self.children.remove(node)
 
+    def move_to(self, new_parent: 'Node'):
+        """このノードを新しい親ノードの下に移動する"""
+        if self.parent:
+            self.parent.remove_child(self)
+        self.parent = new_parent
+        new_parent.children.append(self)
+        # 方向は新しい親の方向を引き継ぐか、ルート直下なら再計算が必要だが
+        # ここでは一旦親に合わせるかNone（描画時に計算）とする
+        if new_parent.parent is None: # ルート直下への移動
+             self.direction = None # 再計算させる
+        else:
+             self.direction = new_parent.direction
+
     def to_dict(self) -> dict:
         """シリアライズ用の辞書変換"""
         return {

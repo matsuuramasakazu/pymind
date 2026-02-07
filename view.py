@@ -132,6 +132,25 @@ class MindMapView:
             w, h = node.width, node.height
             self.canvas.coords(self.drag_data["ghost_id"], cx - w/2, cy - h/2, cx + w/2, cy + h/2)
 
+            # --- 自動スクロール処理（速度調整版） ---
+            cv_w = self.canvas.winfo_width()
+            cv_h = self.canvas.winfo_height()
+            margin = 50
+            
+            # スクロール速度を抑えるため、5回に1回の頻度で処理
+            self.drag_data["scroll_tick"] = self.drag_data.get("scroll_tick", 0) + 1
+            if self.drag_data["scroll_tick"] % 5 == 0:
+                if event.x < margin:
+                    self.canvas.xview_scroll(-1, "units")
+                elif event.x > cv_w - margin:
+                    self.canvas.xview_scroll(1, "units")
+                    
+                if event.y < margin:
+                    self.canvas.yview_scroll(-1, "units")
+                elif event.y > cv_h - margin:
+                    self.canvas.yview_scroll(1, "units")
+            # ------------------------
+
     def on_drag_drop(self, event):
         if not self.drag_data.get("dragging"):
             # ドラッグしていなければクリック処理のみで終了
@@ -199,7 +218,6 @@ class MindMapView:
 
     def calculate_subtree_height(self, node: Node):
         """そのノードを含むサブツリー全体の必要高さを計算・更新する"""
-        # draw_nodeを呼ばなくてもサイズが必要なため、一度計算しておく
         font = self.graphics.root_font if node.parent is None else self.graphics.font
         node.width, node.height = self.graphics.get_text_size(node.text, font)
         
@@ -207,9 +225,11 @@ class MindMapView:
             node.subtree_height = node.height
             return node.height
             
-        spacing = 20
+        spacing_y = 30 # 垂直方向の最小間隔
         total_height = sum(self.calculate_subtree_height(c) for c in node.children)
-        total_height += spacing * (len(node.children) - 1)
+        total_height += spacing_y * (len(node.children) - 1)
+        
+        # サブツリーの高さは、自身の高さか子の合計か高い方（余白含む）
         node.subtree_height = max(node.height, total_height)
         return node.subtree_height
 
@@ -225,26 +245,37 @@ class MindMapView:
         right_children = [c for c in root.children if c.direction != 'left']
         left_children = [c for c in root.children if c.direction == 'left']
         
-        self._layout_branch(right_children, center_x + 200, center_y, 'right')
-        self._layout_branch(left_children, center_x - 200, center_y, 'left')
+        # 水平方向のオフセット（ルートの幅の半分 + 余白 + 子ノードの想定幅の半分）
+        h_margin = 80 # 横方向の余白
+        
+        # 右側のブランチ配置
+        self._layout_branch(right_children, center_x, center_y, 'right', h_margin)
+        # 左側のブランチ配置
+        self._layout_branch(left_children, center_x, center_y, 'left', h_margin)
 
-    def _layout_branch(self, nodes, start_x, start_y, direction):
+    def _layout_branch(self, nodes, parent_x, start_y, direction, h_margin):
         if not nodes:
             return
             
-        spacing = 20
-        total_height = sum(n.subtree_height for n in nodes) + spacing * (len(nodes) - 1)
+        spacing_y = 30
+        total_height = sum(n.subtree_height for n in nodes) + spacing_y * (len(nodes) - 1)
         current_y = start_y - total_height / 2
         
         for node in nodes:
-            node.x = start_x
+            # 水平位置の決定: 親の端から一定距離離れた場所に配置
+            # node.parent は確定しているので、その幅を考慮
+            p = node.parent
+            if direction == 'right':
+                node.x = p.x + p.width/2 + h_margin + node.width/2
+            else:
+                node.x = p.x - p.width/2 - h_margin - node.width/2
+                
             node.y = current_y + node.subtree_height / 2
             
-            # 孫以降の配置
-            next_x = start_x + 200 if direction == 'right' else start_x - 200
-            self._layout_branch(node.children, next_x, node.y, direction)
+            # 孫以降の再帰配置
+            self._layout_branch(node.children, node.x, node.y, direction, h_margin)
             
-            current_y += node.subtree_height + spacing
+            current_y += node.subtree_height + spacing_y
 
     def render(self):
         self.graphics.clear()

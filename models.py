@@ -15,10 +15,12 @@ class Node:
         self.y = 0.0
         self.width = 100
         self.height = 40
+        self.color = None
 
     def add_child(self, text: str, direction: Optional[str] = None) -> 'Node':
         child = Node(text, parent=self)
         child.direction = direction
+        child.color = self.color # 親の色を継承
         self.children.append(child)
         return child
 
@@ -32,8 +34,8 @@ class Node:
             self.parent.remove_child(self)
         self.parent = new_parent
         new_parent.children.append(self)
+        self.color = new_parent.color # 移動した先の親の色を継承
         # 方向は新しい親の方向を引き継ぐか、ルート直下なら再計算が必要だが
-        # ここでは一旦親に合わせるかNone（描画時に計算）とする
         if new_parent.parent is None: # ルート直下への移動
              self.direction = None # 再計算させる
         else:
@@ -45,6 +47,7 @@ class Node:
             "id": self.id,
             "text": self.text,
             "direction": self.direction,
+            "color": self.color,
             "children": [child.to_dict() for child in self.children]
         }
 
@@ -54,6 +57,7 @@ class Node:
         node = cls(data["text"], parent=parent)
         node.id = data.get("id", str(uuid.uuid4()))
         node.direction = data.get("direction")
+        node.color = data.get("color")
         for child_data in data.get("children", []):
             child = cls.from_dict(child_data, parent=node)
             node.children.append(child)

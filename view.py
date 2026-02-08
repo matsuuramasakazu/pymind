@@ -77,19 +77,14 @@ class MindMapView:
             cx = self.canvas.canvasx(event.x)
             cy = self.canvas.canvasy(event.y)
             
-            print(f"DEBUG: Click at ({event.x}, {event.y}) -> Canvas ({cx}, {cy})")
-            
             # クリックしたノードを選択状態にする
             clicked_node = self.find_node_at(cx, cy)
             
             if clicked_node:
-                print(f"DEBUG: Node selected: {clicked_node.text}")
                 self.selected_node = clicked_node
                 self.render()
                 # ドラッグ開始の準備
                 self.on_drag_start(event)
-            else:
-                print("DEBUG: No node clicked")
 
     def find_node_at(self, x, y):
         """指定座標にあるノードを返す"""
@@ -171,15 +166,10 @@ class MindMapView:
                     
                     # 方向の再計算と適用
                     if target_node == self.model.root:
-                        # ルート直下に移動した場合、バランスを見て決定
-                        # move_to直後なので自分自身を除いてカウントしないと正確でない可能性があるが、
-                        # _get_balanced_direction は現状のリストを見る。
-                        # ここでは簡易的に、現在のリストから自分自身を除外してバランスを見る
-                        siblings = [c for c in self.model.root.children if c != dropped_node]
-                        right_count = len([c for c in siblings if c.direction != 'left'])
-                        left_count = len([c for c in siblings if c.direction == 'left'])
-                        new_direction = 'right' if right_count <= left_count else 'left'
-                        
+                        # ルート直下に移動した場合、インデックスに基づいた方向を適用
+                        idx = self.model.root.children.index(dropped_node)
+                        pos_idx = idx % 6
+                        new_direction = 'right' if pos_idx in (0, 1, 4) else 'left'
                         dropped_node.direction = new_direction
                     else:
                         # 親の方向を継承
@@ -242,16 +232,58 @@ class MindMapView:
         root.y = center_y
         
         # ルートの子ノードを左右に分ける
-        right_children = [c for c in root.children if c.direction != 'left']
-        left_children = [c for c in root.children if c.direction == 'left']
+        right_all = [c for c in root.children if c.direction != 'left']
+        left_all = [c for c in root.children if c.direction == 'left']
         
-        # 水平方向のオフセット（ルートの幅の半分 + 余白 + 子ノードの想定幅の半分）
+        def group_and_sort(nodes):
+            # 0:上, 1:下, 2:中
+            groups = {0: [], 1: [], 2: []}
+            side_siblings = nodes # 既に左右で分かれている前提
+            for n in nodes:
+                try:
+                    side_idx = side_siblings.index(n)
+                    groups[side_idx % 3].append(n)
+                except ValueError:
+                    groups[2].append(n)
+            return groups
+
+        r_groups = group_and_sort(right_all)
+        l_groups = group_and_sort(left_all)
+        
         h_margin = 80 # 横方向の余白
-        
-        # 右側のブランチ配置
-        self._layout_branch(right_children, center_x, center_y, 'right', h_margin)
-        # 左側のブランチ配置
-        self._layout_branch(left_children, center_x, center_y, 'left', h_margin)
+        v_gap = 40    # グループ間の垂直方向の最小隙間
+
+        def get_group_height(nodes):
+            if not nodes: return 0
+            return sum(n.subtree_height for n in nodes) + 30 * (len(nodes) - 1)
+
+        # --- 配置の実行 ---
+        # 各サイド（右・左）において、中央グループが膨らんだ場合に上下を適切に押し出す
+        for side, groups in [('right', r_groups), ('left', l_groups)]:
+            dir_sign = 1 if side == 'right' else -1
+            
+            h_mid = get_group_height(groups[2])
+            h_top = get_group_height(groups[0])
+            h_btm = get_group_height(groups[1])
+            
+            # 中央セクターの境界（中心からの距離）
+            mid_boundary = max(root.height / 2, h_mid / 2)
+            
+            # 1. 中央セクター
+            if groups[2]:
+                self._layout_branch(groups[2], center_x, center_y, side, h_margin)
+            
+            # 2. 上部セクター
+            if groups[0]:
+                # 中央境界よりさらに上に配置
+                start_y_top = center_y - mid_boundary - v_gap - h_top/2
+                self._layout_branch(groups[0], center_x, start_y_top, side, h_margin)
+                
+            # 3. 下部セクター
+            if groups[1]:
+                # 中央境界よりさらに下に配置
+                start_y_btm = center_y + mid_boundary + v_gap + h_btm/2
+                self._layout_branch(groups[1], center_x, start_y_btm, side, h_margin)
 
     def _layout_branch(self, nodes, parent_x, start_y, direction, h_margin):
         if not nodes:
@@ -373,10 +405,14 @@ class MindMapView:
         self.on_edit_node(None)
 
     def _get_balanced_direction(self):
-        """ルートの子ノードの左右バランスを計算して次の方向を返す"""
-        right_count = len([c for c in self.model.root.children if c.direction != 'left'])
-        left_count = len([c for c in self.model.root.children if c.direction == 'left'])
-        return 'right' if right_count <= left_count else 'left'
+        """ルートの子ノードの順序に基づいた方向を返す"""
+        # ユーザー指定の順序: 0:右, 1:右, 2:左, 3:左, 4:右, 5:左
+        idx = len(self.model.root.children)
+        pos_idx = idx % 6
+        if pos_idx in (0, 1, 4):
+            return 'right'
+        else:
+            return 'left'
 
     def on_add_sibling(self, event):
         if self.editing_entry: return
@@ -393,7 +429,6 @@ class MindMapView:
             self.on_edit_node(None)
 
     def on_edit_node(self, event):
-        print(f"DEBUG: on_edit_node triggered by {event}")
         if self.editing_entry:
             return
             
@@ -413,7 +448,6 @@ class MindMapView:
         def set_focus():
             if self.editing_entry == entry:
                 entry.focus_set()
-                print("DEBUG: Entry focused")
         self.root.after(100, set_focus)
         
         self.finishing = False # 再入防止フラグ
@@ -422,7 +456,6 @@ class MindMapView:
             if self.finishing or not self.editing_entry:
                 return "break"
             self.finishing = True
-            print("DEBUG: finish_edit started")
             
             new_text = entry.get()
             if new_text:
@@ -438,7 +471,6 @@ class MindMapView:
             if self.finishing or not self.editing_entry:
                 return "break"
             self.finishing = True
-            print("DEBUG: cancel_edit started")
             
             self.editing_entry = None
             self.canvas.delete(window_id)
@@ -475,7 +507,6 @@ class MindMapView:
         self.root.config(menu=menubar)
 
     def on_save(self, event=None):
-        print("DEBUG: on_save triggered")
         file_path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
@@ -490,7 +521,6 @@ class MindMapView:
                 messagebox.showerror("エラー", f"保存に失敗しました: {e}")
 
     def on_open(self, event=None):
-        print("DEBUG: on_open triggered")
         file_path = filedialog.askopenfilename(
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
         )
@@ -537,6 +567,19 @@ class MindMapView:
             # 同じ方向（左右）の兄弟間での移動
             siblings = [c for c in curr.parent.children if c.direction == curr.direction]
             if not siblings: siblings = curr.parent.children
+            
+            # 親がルートの場合、接続点のY座標ランク（見た目の順）でソートする
+            if curr.parent == self.model.root:
+                def get_y_rank(node):
+                    side_siblings = [c for c in curr.parent.children if c.direction == node.direction]
+                    try:
+                        side_idx = side_siblings.index(node)
+                        point_type = side_idx % 3
+                        y_rank = 0 if point_type == 0 else (1 if point_type == 2 else 2)
+                        return (y_rank, side_idx // 3)
+                    except ValueError:
+                        return (0, 0)
+                siblings.sort(key=get_y_rank)
             
             try:
                 idx = siblings.index(curr)

@@ -87,9 +87,11 @@ class GraphicsEngine:
         if is_root:
             # ルートノード：太い枠線の角丸長方形
             outline_w = 4 if is_selected else 3
+            # 選択時は背景をハイライト色に変更
+            fill_color = "#E3F2FD" if is_selected else "white"
             rect_id = self._create_rounded_rect(
                 x - w/2 - 12, y - h/2 - 10, x + w/2 + 12, y + h/2 + 10,
-                radius=10, fill="white", outline=color, width=outline_w, tags=("node", node.id)
+                radius=10, fill=fill_color, outline=color, width=outline_w, tags=("node", node.id)
             )
             items.append(rect_id)
         else:
@@ -126,10 +128,35 @@ class GraphicsEngine:
         
         # ポイント計算
         if p.parent is None:
-            # ルートからの接続：テーパード
-            px = p.x + p.width/2 + 10 if dir == 'right' else p.x - p.width/2 - 10
-            py = p.y
-            nx = node.x - node.width/2 if dir == 'right' else node.x + node.width/2
+            # 自分の方向（左右）の兄弟内でのインデックスを取得して接続点を決定
+            # これにより、削除などで全体のインデックスがずれても交差しない
+            side_siblings = [c for c in p.children if c.direction == node.direction]
+            try:
+                side_idx = side_siblings.index(node) % 3
+            except ValueError:
+                side_idx = 0
+            
+            w_h = p.width / 2 + 12
+            h_h = p.height / 2 + 10
+            
+            if node.direction != 'left':
+                # 右側のポイント: 0:右上, 1:右下, 2:右中央
+                if side_idx == 0:
+                    px, py = p.x + w_h, p.y - h_h
+                elif side_idx == 1:
+                    px, py = p.x + w_h, p.y + h_h
+                else:
+                    px, py = p.x + w_h, p.y
+            else:
+                # 左側のポイント: 0:左上, 1:左下, 2:左中央
+                if side_idx == 0:
+                    px, py = p.x - w_h, p.y - h_h
+                elif side_idx == 1:
+                    px, py = p.x - w_h, p.y + h_h
+                else:
+                    px, py = p.x - w_h, p.y
+                
+            nx = node.x - node.width/2 if node.x > p.x else node.x + node.width/2
             ny = node.y + node.height/2
             
             items = self._draw_tapered_bezier(px, py, nx, ny, color, 8, 2)
@@ -170,10 +197,22 @@ class GraphicsEngine:
     def _draw_tapered_bezier(self, x1, y1, x2, y2, color, start_w, end_w):
         items = []
         steps = 30
-        cp1x = (x1 + x2) / 2
-        cp1y = y1
-        cp2x = (x1 + x2) / 2
-        cp2y = y2
+        
+        # XMind風の凸型曲線の計算
+        dx = x2 - x1
+        cp1x = x1 + dx * 0.4
+        cp2x = x1 + dx * 0.6
+        
+        # 上に凸/下に凸の調整
+        if y2 < y1: # 上方向に伸びる
+            cp1y = y2 # 最初から上に引っ張ることで「上に凸」
+            cp2y = y2
+        elif y2 > y1: # 下方向に伸びる
+            cp1y = y2 # 最初から下に引っ張ることで「下に凸」
+            cp2y = y2
+        else: # 水平
+            cp1y = y1
+            cp2y = y2
         
         def bz(t, p0, p1, p2, p3):
             return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3

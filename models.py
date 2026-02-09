@@ -19,7 +19,11 @@ class Node:
 
     def add_child(self, text: str, direction: Optional[str] = None) -> 'Node':
         child = Node(text, parent=self)
-        child.direction = direction
+        if direction:
+            child.direction = direction
+        else:
+            # 親の方向を継承
+            child.direction = self.direction
         child.color = self.color # 親の色を継承
         self.children.append(child)
         return child
@@ -67,6 +71,23 @@ class MindMapModel:
     """マインドマップ全体を管理するモデル"""
     def __init__(self, root_text: str = "中心トピック"):
         self.root = Node(root_text)
+
+    def add_node(self, parent_node: Node, text: str = "新規トピック") -> Node:
+        """指定したノードに子ノードを追加する。ルート直下の場合は方向を自動調整する。"""
+        direction = None
+        if parent_node == self.root:
+            direction = self.get_balanced_direction()
+        
+        return parent_node.add_child(text, direction)
+
+    def get_balanced_direction(self) -> str:
+        """ルートの子ノードの順序に基づいた方向を返す"""
+        idx = len(self.root.children)
+        pos_idx = idx % 6
+        if pos_idx in (0, 1, 4):
+            return 'right'
+        else:
+            return 'left'
 
     def find_node_by_id(self, node_id: str, current: Optional[Node] = None) -> Optional[Node]:
         if current is None:

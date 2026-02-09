@@ -1,8 +1,9 @@
 import tkinter as tk
-from tkinter import simpledialog, filedialog, messagebox
+from tkinter import filedialog, messagebox
 import json
 from models import MindMapModel, Node
 from graphics import GraphicsEngine
+from layout import LayoutEngine
 
 class MindMapView:
     def __init__(self, root: tk.Tk):
@@ -28,6 +29,7 @@ class MindMapView:
         
         self.model = MindMapModel()
         self.graphics = GraphicsEngine(self.canvas)
+        self.layout_engine = LayoutEngine()
         self.selected_node: Node = self.model.root
         self.editing_entry = None # インライン編集用のウィジェット
         self.drag_data = {} # ドラッグ＆ドロップ用データ
@@ -167,10 +169,7 @@ class MindMapView:
                     # 方向の再計算と適用
                     if target_node == self.model.root:
                         # ルート直下に移動した場合、インデックスに基づいた方向を適用
-                        idx = self.model.root.children.index(dropped_node)
-                        pos_idx = idx % 6
-                        new_direction = 'right' if pos_idx in (0, 1, 4) else 'left'
-                        dropped_node.direction = new_direction
+                        dropped_node.direction = self.model.get_balanced_direction()
                     else:
                         # 親の方向を継承
                         dropped_node.direction = target_node.direction
@@ -206,108 +205,8 @@ class MindMapView:
             return "break" # 基本的にマインドマップの操作はここで完結させる
         return wrapper
 
-    def calculate_subtree_height(self, node: Node):
-        """そのノードを含むサブツリー全体の必要高さを計算・更新する"""
-        font = self.graphics.root_font if node.parent is None else self.graphics.font
-        node.width, node.height = self.graphics.get_text_size(node.text, font)
-        
-        if not node.children:
-            node.subtree_height = node.height
-            return node.height
-            
-        spacing_y = 30 # 垂直方向の最小間隔
-        total_height = sum(self.calculate_subtree_height(c) for c in node.children)
-        total_height += spacing_y * (len(node.children) - 1)
-        
-        # サブツリーの高さは、自身の高さか子の合計か高い方（余白含む）
-        node.subtree_height = max(node.height, total_height)
-        return node.subtree_height
-
-    def layout(self, center_x, center_y):
-        """左右対称レイアウトの実行"""
-        root = self.model.root
-        self.calculate_subtree_height(root)
-        
-        root.x = center_x
-        root.y = center_y
-        
-        # ルートの子ノードを左右に分ける
-        right_all = [c for c in root.children if c.direction != 'left']
-        left_all = [c for c in root.children if c.direction == 'left']
-        
-        def group_and_sort(nodes):
-            # 0:上, 1:下, 2:中
-            groups = {0: [], 1: [], 2: []}
-            side_siblings = nodes # 既に左右で分かれている前提
-            for n in nodes:
-                try:
-                    side_idx = side_siblings.index(n)
-                    groups[side_idx % 3].append(n)
-                except ValueError:
-                    groups[2].append(n)
-            return groups
-
-        r_groups = group_and_sort(right_all)
-        l_groups = group_and_sort(left_all)
-        
-        h_margin = 80 # 横方向の余白
-        v_gap = 40    # グループ間の垂直方向の最小隙間
-
-        def get_group_height(nodes):
-            if not nodes: return 0
-            return sum(n.subtree_height for n in nodes) + 30 * (len(nodes) - 1)
-
-        # --- 配置の実行 ---
-        # 各サイド（右・左）において、中央グループが膨らんだ場合に上下を適切に押し出す
-        for side, groups in [('right', r_groups), ('left', l_groups)]:
-            dir_sign = 1 if side == 'right' else -1
-            
-            h_mid = get_group_height(groups[2])
-            h_top = get_group_height(groups[0])
-            h_btm = get_group_height(groups[1])
-            
-            # 中央セクターの境界（中心からの距離）
-            mid_boundary = max(root.height / 2, h_mid / 2)
-            
-            # 1. 中央セクター
-            if groups[2]:
-                self._layout_branch(groups[2], center_x, center_y, side, h_margin)
-            
-            # 2. 上部セクター
-            if groups[0]:
-                # 中央境界よりさらに上に配置
-                start_y_top = center_y - mid_boundary - v_gap - h_top/2
-                self._layout_branch(groups[0], center_x, start_y_top, side, h_margin)
-                
-            # 3. 下部セクター
-            if groups[1]:
-                # 中央境界よりさらに下に配置
-                start_y_btm = center_y + mid_boundary + v_gap + h_btm/2
-                self._layout_branch(groups[1], center_x, start_y_btm, side, h_margin)
-
-    def _layout_branch(self, nodes, parent_x, start_y, direction, h_margin):
-        if not nodes:
-            return
-            
-        spacing_y = 30
-        total_height = sum(n.subtree_height for n in nodes) + spacing_y * (len(nodes) - 1)
-        current_y = start_y - total_height / 2
-        
-        for node in nodes:
-            # 水平位置の決定: 親の端から一定距離離れた場所に配置
-            # node.parent は確定しているので、その幅を考慮
-            p = node.parent
-            if direction == 'right':
-                node.x = p.x + p.width/2 + h_margin + node.width/2
-            else:
-                node.x = p.x - p.width/2 - h_margin - node.width/2
-                
-            node.y = current_y + node.subtree_height / 2
-            
-            # 孫以降の再帰配置
-            self._layout_branch(node.children, node.x, node.y, direction, h_margin)
-            
-            current_y += node.subtree_height + spacing_y
+        # レイアウト計算 (キャンバスの中央を基準にする)
+        self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
 
     def render(self):
         self.graphics.clear()
@@ -322,7 +221,7 @@ class MindMapView:
         if h < 100: h = 800
         
         # レイアウト計算 (キャンバスの中央を基準にする)
-        self.layout(w / 2, h / 2)
+        self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
         
         # 全ノード描画
         self._draw_subtree(self.model.root)
@@ -392,38 +291,15 @@ class MindMapView:
     def on_add_child(self, event):
         if self.editing_entry: return
         
-        # 方向の決定
-        if self.selected_node == self.model.root:
-            direction = self._get_balanced_direction()
-        else:
-            # 親の方向を継承（孫以降も左側・右側の概念を保持するため）
-            direction = self.selected_node.direction
-        
-        new_node = self.selected_node.add_child("新規トピック", direction)
+        new_node = self.model.add_node(self.selected_node)
         self.selected_node = new_node
         self.render()
         self.on_edit_node(None)
 
-    def _get_balanced_direction(self):
-        """ルートの子ノードの順序に基づいた方向を返す"""
-        # ユーザー指定の順序: 0:右, 1:右, 2:左, 3:左, 4:右, 5:左
-        idx = len(self.model.root.children)
-        pos_idx = idx % 6
-        if pos_idx in (0, 1, 4):
-            return 'right'
-        else:
-            return 'left'
-
     def on_add_sibling(self, event):
         if self.editing_entry: return
         if self.selected_node.parent:
-            direction = None
-            if self.selected_node.parent == self.model.root:
-                direction = self._get_balanced_direction()
-            else:
-                direction = self.selected_node.direction
-            
-            new_node = self.selected_node.parent.add_child("新規トピック", direction)
+            new_node = self.model.add_node(self.selected_node.parent)
             self.selected_node = new_node
             self.render()
             self.on_edit_node(None)

@@ -80,11 +80,12 @@ class MindMapModel:
         
         return parent_node.add_child(text, direction)
 
-    def get_balanced_direction(self) -> str:
-        """ルートの子ノードの順序に基づいた方向を返す"""
-        idx = len(self.root.children)
-        pos_idx = idx % 6
-        if pos_idx in (0, 1, 4):
+    def get_balanced_direction(self, exclude_node: Optional[Node] = None) -> str:
+        """ルートの子ノードの左右バランスを考慮した方向を返す"""
+        right_nodes = [c for c in self.root.children if c.direction != 'left' and c != exclude_node]
+        left_nodes = [c for c in self.root.children if c.direction == 'left' and c != exclude_node]
+        
+        if len(right_nodes) <= len(left_nodes):
             return 'right'
         else:
             return 'left'

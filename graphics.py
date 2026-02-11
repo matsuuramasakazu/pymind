@@ -180,6 +180,78 @@ class GraphicsEngine:
             items = self._draw_bezier(px, py, cp1x, cp1y, cp2x, cp2y, nx, ny, color, 2)
             self.line_items[node.id] = items
 
+    def draw_move_shadow_connection(self, parent_node: Node, shadow_node: Node):
+        """移動先の影用の接続線を描画する"""
+        p = parent_node
+        node = shadow_node
+        color = "#cccccc" # 影用カラー
+        
+        # 基本的な接続ロジックを draw_connection から流用
+        if p.parent is None:
+            side_siblings = [c for c in p.children if c.direction == node.direction]
+            # shadow_node がまだ children に入っていない場合を考慮（仮移動中なら入っているはず）
+            try:
+                side_idx = side_siblings.index(node) % 3
+            except ValueError:
+                side_idx = 0
+            
+            w_h = p.width / 2 + 12
+            h_h = p.height / 2 + 10
+            
+            if node.direction != 'left':
+                if side_idx == 0: px, py = p.x + w_h, p.y - h_h
+                elif side_idx == 1: px, py = p.x + w_h, p.y + h_h
+                else: px, py = p.x + w_h, p.y
+            else:
+                if side_idx == 0: px, py = p.x - w_h, p.y - h_h
+                elif side_idx == 1: px, py = p.x - w_h, p.y + h_h
+                else: px, py = p.x - w_h, p.y
+                
+            nx = node.x - node.width/2 if node.x > p.x else node.x + node.width/2
+            ny = node.y + node.height/2
+            
+            # 影用のタグ "move_shadow" を指定して描画
+            steps = 30
+            dx = nx - px
+            cp1x = px + dx * 0.4
+            cp2x = px + dx * 0.6
+            if ny < py: cp1y = cp2y = ny
+            elif ny > py: cp1y = cp2y = ny
+            else: cp1y, cp2y = py, ny
+            
+            def bz(t, p0, p1, p2, p3):
+                return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
+
+            for i in range(steps):
+                t0 = i / steps
+                t1 = (i + 1) / steps
+                xa, ya = bz(t0, px, cp1x, cp2x, nx), bz(t0, py, cp1y, cp2y, ny)
+                xb, yb = bz(t1, px, cp1x, cp2x, nx), bz(t1, py, cp1y, cp2y, ny)
+                w = 8 + (2 - 8) * t0
+                self.canvas.create_line(xa, ya, xb, yb, fill=color, width=w, capstyle="round", tags="move_shadow")
+        else:
+            parent_dir = 'right' if node.x > p.x else 'left'
+            px = p.x + p.width/2 if parent_dir == 'right' else p.x - p.width/2
+            py = p.y + p.height/2
+            nx = node.x - node.width/2 if parent_dir == 'right' else node.x + node.width/2
+            ny = node.y + node.height/2
+            
+            dx = nx - px
+            cp1x = px + dx * 0.4
+            cp1y = py
+            cp2x = px + dx * 0.6
+            cp2y = ny
+            
+            steps = 15
+            def bz(t, p0, p1, p2, p3):
+                return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
+            for i in range(steps):
+                t0 = i / steps
+                t1 = (i + 1) / steps
+                xa, ya = bz(t0, px, cp1x, cp2x, nx), bz(t0, py, cp1y, cp2y, ny)
+                xb, yb = bz(t1, px, cp1x, cp2x, nx), bz(t1, py, cp1y, cp2y, ny)
+                self.canvas.create_line(xa, ya, xb, yb, fill=color, width=2, capstyle="round", tags="move_shadow")
+
     def _draw_bezier(self, x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2, color, width):
         items = []
         steps = 15
@@ -213,7 +285,7 @@ class GraphicsEngine:
         else: # 水平
             cp1y = y1
             cp2y = y2
-        
+            
         def bz(t, p0, p1, p2, p3):
             return (1-t)**3 * p0 + 3*(1-t)**2 * t * p1 + 3*(1-t) * t**2 * p2 + t**3 * p3
 

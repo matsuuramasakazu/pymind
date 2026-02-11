@@ -94,7 +94,8 @@ class MindMapView:
         # find_overlapping は (x1, y1, x2, y2) で指定
         padding = 10
         items = self.canvas.find_overlapping(x-padding, y-padding, x+padding, y+padding)
-        for item_id in items:
+        # 描画順（スタッキング順）の逆順でチェックすることで、前面にある（新しい）ノードを優先する
+        for item_id in reversed(items):
             tags = self.canvas.gettags(item_id)
             if "node" in tags or "text" in tags:
                 # タグからnode_idを取得 (e.g., "node <uuid>")
@@ -129,6 +130,13 @@ class MindMapView:
             w, h = node.width, node.height
             self.canvas.coords(self.drag_data["ghost_id"], cx - w/2, cy - h/2, cx + w/2, cy + h/2)
 
+            # 移動先の影表示
+            target_node = self.find_node_at(cx, cy)
+            if target_node and target_node != node and not self.is_descendant(target_node, node) and target_node != node.parent:
+                self.show_move_shadow(node, target_node)
+            else:
+                self.hide_move_shadow()
+
             # --- 自動スクロール処理（速度調整版） ---
             cv_w = self.canvas.winfo_width()
             cv_h = self.canvas.winfo_height()
@@ -155,11 +163,12 @@ class MindMapView:
             return
 
         self.canvas.delete("ghost")
+        self.hide_move_shadow()
         target_node = self.find_node_at(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
         
         dropped_node = self.drag_data["item"]
         
-        if target_node and target_node != dropped_node:
+        if target_node and target_node != dropped_node and target_node != dropped_node.parent:
             # ドロップ可能かチェック (自分自身や子孫への移動は不可)
             if not self.is_descendant(target_node, dropped_node):
                  # ルートは移動不可
@@ -168,8 +177,8 @@ class MindMapView:
                     
                     # 方向の再計算と適用
                     if target_node == self.model.root:
-                        # ルート直下に移動した場合、インデックスに基づいた方向を適用
-                        dropped_node.direction = self.model.get_balanced_direction()
+                        # ルート直下に移動した場合、他のノード数に基づいた方向を適用
+                        dropped_node.direction = self.model.get_balanced_direction(exclude_node=dropped_node)
                     else:
                         # 親の方向を継承
                         dropped_node.direction = target_node.direction
@@ -178,14 +187,99 @@ class MindMapView:
                     self._update_direction_recursive(dropped_node, dropped_node.direction)
                     
                     self.render()
+        
+        self.drag_data = {}
+
+    def show_move_shadow(self, dragged_node: Node, target_node: Node):
+        """移動先の予定位置に影を表示する"""
+        if self.drag_data.get("shadow_target_id") == target_node.id:
+            return
+        
+        self.hide_move_shadow()
+        
+        # 現在の親トピックの「表示中」の座標を基準にする
+        base_x, base_y = target_node.x, target_node.y
+        
+        old_parent = dragged_node.parent
+        # 元のインデックスを保持（順序維持のため非常に重要）
+        old_index = old_parent.children.index(dragged_node) if old_parent else -1
+        old_direction = dragged_node.direction
+        
+        # キャンバスの現在サイズ
+        w = self.canvas.winfo_width()
+        h = self.canvas.winfo_height()
+        if w < 100: w = 1000
+        if h < 100: h = 800
+        
+        try:
+            # 仮移動（末尾に追加）
+            if old_parent:
+                old_parent.children.remove(dragged_node)
+            dragged_node.parent = target_node
+            target_node.children.append(dragged_node)
+            
+            # 方向の仮決定
+            if target_node == self.model.root:
+                dragged_node.direction = self.model.get_balanced_direction(exclude_node=dragged_node)
+            else:
+                dragged_node.direction = target_node.direction
+            self._update_direction_recursive(dragged_node, dragged_node.direction)
+            
+            # レイアウト計算
+            self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
+            self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
+            
+            # 親との相対距離（オフセット）を計算
+            offset_x = dragged_node.x - target_node.x
+            offset_y = dragged_node.y - target_node.y
+            
+            # 影の描画 (「現在の表示座標 + 仮レイアウトでのオフセット」の位置)
+            sx, sy = base_x + offset_x, base_y + offset_y
+            sw, sh = dragged_node.width, dragged_node.height
+            shadow_id = self.canvas.create_rectangle(
+                sx - sw/2, sy - sh/2, sx + sw/2, sy + sh/2,
+                fill="#e0e0e0", outline="#cccccc", tags="move_shadow"
+            )
+            self.canvas.lower(shadow_id)
+            
+            # 接続線の影を描画
+            tmp_x, tmp_y = dragged_node.x, dragged_node.y
+            dragged_node.x, dragged_node.y = sx, sy
+            target_tmp_x, target_tmp_y = target_node.x, target_node.y
+            target_node.x, target_node.y = base_x, base_y
+            
+            self.graphics.draw_move_shadow_connection(target_node, dragged_node)
+            
+            dragged_node.x, dragged_node.y = tmp_x, tmp_y
+            target_node.x, target_node.y = target_tmp_x, target_tmp_y
+            
+            self.drag_data["shadow_target_id"] = target_node.id
+            
+        finally:
+            # モデルの状態を「完全に」元に戻す
+            if dragged_node in target_node.children:
+                target_node.children.remove(dragged_node)
+            dragged_node.parent = old_parent
+            if old_parent and dragged_node not in old_parent.children:
+                old_parent.children.insert(old_index, dragged_node)
+                
+            dragged_node.direction = old_direction
+            self._update_direction_recursive(dragged_node, old_direction)
+            
+            # レイアウト（座標データ）も元に戻す
+            self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
+            self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
+
+    def hide_move_shadow(self):
+        """移動先の影を消去する"""
+        self.canvas.delete("move_shadow")
+        self.drag_data["shadow_target_id"] = None
 
     def _update_direction_recursive(self, node: Node, direction):
         """ノードとその子孫の方向を再帰的に更新"""
         node.direction = direction
         for child in node.children:
             self._update_direction_recursive(child, direction)
-        
-        self.drag_data = {}
 
     def is_descendant(self, node, potential_ancestor):
         """nodeがpotential_ancestorの子孫かどうかをチェック"""

@@ -162,8 +162,6 @@ class DragDropHandler:
         old_index = old_parent.children.index(dragged_node) if old_parent else -1
         old_direction = dragged_node.direction
         
-        w, h = max(1000, self.canvas.winfo_width()), max(800, self.canvas.winfo_height())
-        
         try:
             if old_parent: old_parent.children.remove(dragged_node)
             dragged_node.parent = target_node
@@ -176,7 +174,7 @@ class DragDropHandler:
             dragged_node.update_direction_recursive(dragged_node.direction)
             
             self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
-            self.layout_engine.apply_layout(self.model, self.graphics, 5000, 5000)
+            self.layout_engine.apply_layout(self.model, self.graphics, MindMapView.LOGICAL_CENTER_X, MindMapView.LOGICAL_CENTER_Y)
             
             sx, sy = base_x + (dragged_node.x - target_node.x), base_y + (dragged_node.y - target_node.y)
             sw, sh = dragged_node.width, dragged_node.height
@@ -205,7 +203,7 @@ class DragDropHandler:
             dragged_node.direction = old_direction
             dragged_node.update_direction_recursive(old_direction)
             self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
-            self.layout_engine.apply_layout(self.model, self.graphics, 5000, 5000)
+            self.layout_engine.apply_layout(self.model, self.graphics, MindMapView.LOGICAL_CENTER_X, MindMapView.LOGICAL_CENTER_Y)
 
     def hide_move_shadow(self):
         self.canvas.delete("move_shadow")

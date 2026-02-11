@@ -10,6 +10,10 @@ class GraphicsEngine:
         self.text_items: Dict[str, int] = {} 
         self.line_items: Dict[str, list] = {} 
         
+        # 定数
+        self.BEZIER_STEPS = 15
+        self.TAPERED_BEZIER_STEPS = 30
+        
         # デザイン設定
         self.text_color = "#333333"
         self.root_outline = "#222222"
@@ -130,48 +134,53 @@ class GraphicsEngine:
 
     def _get_connection_points(self, node: Node, parent: Node):
         """接続の開始点、制御点、終了点を計算する"""
-        p = parent
-        if p.parent is None:
-            # ルートからの接続
-            side_siblings = [c for c in p.children if c.direction == node.direction]
-            try:
-                side_idx = side_siblings.index(node) % 3
-            except ValueError:
-                side_idx = 0
-            
-            w_h = p.width / 2 + 12
-            h_h = p.height / 2 + 10
-            
-            if node.direction != 'left':
-                if side_idx == 0: px, py = p.x + w_h, p.y - h_h
-                elif side_idx == 1: px, py = p.x + w_h, p.y + h_h
-                else: px, py = p.x + w_h, p.y
-            else:
-                if side_idx == 0: px, py = p.x - w_h, p.y - h_h
-                elif side_idx == 1: px, py = p.x - w_h, p.y + h_h
-                else: px, py = p.x - w_h, p.y
-                
-            nx = node.x - node.width/2 if node.x > p.x else node.x + node.width/2
-            ny = node.y + node.height/2
-            
-            dx = nx - px
-            cp1x, cp2x = px + dx * 0.4, px + dx * 0.6
-            cp1y = cp2y = ny if abs(ny - py) > 1 else py
-            
-            return (px, py), (cp1x, cp1y), (cp2x, cp2y), (nx, ny), True # is_tapered
+        if parent.parent is None:
+            return self._get_root_connection_points(node, parent)
         else:
-            # 子→孫の接続
-            parent_dir = 'right' if node.x > p.x else 'left'
-            px = p.x + p.width/2 if parent_dir == 'right' else p.x - p.width/2
-            py = p.y + p.height/2
-            nx = node.x - node.width/2 if parent_dir == 'right' else node.x + node.width/2
-            ny = node.y + node.height/2
+            return self._get_subtree_connection_points(node, parent)
+
+    def _get_root_connection_points(self, node: Node, parent: Node):
+        """ルートからの接続点を計算"""
+        side_siblings = [c for c in parent.children if c.direction == node.direction]
+        try:
+            side_idx = side_siblings.index(node) % 3
+        except ValueError:
+            side_idx = 0
+        
+        w_h = parent.width / 2 + 12
+        h_h = parent.height / 2 + 10
+        
+        if node.direction != 'left':
+            if side_idx == 0: px, py = parent.x + w_h, parent.y - h_h
+            elif side_idx == 1: px, py = parent.x + w_h, parent.y + h_h
+            else: px, py = parent.x + w_h, parent.y
+        else:
+            if side_idx == 0: px, py = parent.x - w_h, parent.y - h_h
+            elif side_idx == 1: px, py = parent.x - w_h, parent.y + h_h
+            else: px, py = parent.x - w_h, parent.y
             
-            dx = nx - px
-            cp1x, cp2x = px + dx * 0.4, px + dx * 0.6
-            cp1y, cp2y = py, ny
-            
-            return (px, py), (cp1x, cp1y), (cp2x, cp2y), (nx, ny), False # not_tapered
+        nx = node.x - node.width/2 if node.x > parent.x else node.x + node.width/2
+        ny = node.y + node.height/2
+        
+        dx = nx - px
+        cp1x, cp2x = px + dx * 0.4, px + dx * 0.6
+        cp1y = cp2y = ny if abs(ny - py) > 1 else py
+        
+        return (px, py), (cp1x, cp1y), (cp2x, cp2y), (nx, ny), True # is_tapered
+
+    def _get_subtree_connection_points(self, node: Node, parent: Node):
+        """子トピック間の接続点を計算"""
+        parent_dir = 'right' if node.x > parent.x else 'left'
+        px = parent.x + parent.width/2 if parent_dir == 'right' else parent.x - parent.width/2
+        py = parent.y + parent.height/2
+        nx = node.x - node.width/2 if parent_dir == 'right' else node.x + node.width/2
+        ny = node.y + node.height/2
+        
+        dx = nx - px
+        cp1x, cp2x = px + dx * 0.4, px + dx * 0.6
+        cp1y, cp2y = py, ny
+        
+        return (px, py), (cp1x, cp1y), (cp2x, cp2y), (nx, ny), False # not_tapered
 
     def draw_connection(self, node: Node):
         if not node.parent: return
@@ -205,7 +214,7 @@ class GraphicsEngine:
             )
 
     def _draw_bezier(self, x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2, color, width, tags=None):
-        steps = 15
+        steps = self.BEZIER_STEPS
         points = self._calculate_bezier_points((x1, y1), (cp1x, cp1y), (cp2x, cp2y), (x2, y2), steps)
         items = []
         for i in range(len(points) - 1):
@@ -217,7 +226,7 @@ class GraphicsEngine:
         return items
 
     def _draw_tapered_bezier(self, x1, y1, x2, y2, color, start_w, end_w, tags=None):
-        steps = 30
+        steps = self.TAPERED_BEZIER_STEPS
         dx = x2 - x1
         cp1x, cp2x = x1 + dx * 0.4, x1 + dx * 0.6
         cp1y = cp2y = y2 if abs(y2 - y1) > 1 else y1

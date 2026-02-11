@@ -176,7 +176,7 @@ class DragDropHandler:
             dragged_node.update_direction_recursive(dragged_node.direction)
             
             self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
-            self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
+            self.layout_engine.apply_layout(self.model, self.graphics, 5000, 5000)
             
             sx, sy = base_x + (dragged_node.x - target_node.x), base_y + (dragged_node.y - target_node.y)
             sw, sh = dragged_node.width, dragged_node.height
@@ -205,7 +205,7 @@ class DragDropHandler:
             dragged_node.direction = old_direction
             dragged_node.update_direction_recursive(old_direction)
             self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
-            self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
+            self.layout_engine.apply_layout(self.model, self.graphics, 5000, 5000)
 
     def hide_move_shadow(self):
         self.canvas.delete("move_shadow")
@@ -270,27 +270,13 @@ class PersistenceHandler:
 
     def on_save(self, event=None):
         if self.current_file_path:
-            file_path = self.current_file_path
+            self._write_to_file(self.current_file_path, "保存が完了しました。")
         else:
             self.on_save_as(event)
-            return
-        
-        if file_path:
-            try:
-                data = self.model.save()
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
-                self.current_file_path = file_path
-                messagebox.showinfo("保存", f"保存が完了しました。\n{file_path}")
-            except Exception as e:
-                messagebox.showerror("エラー", f"保存に失敗しました: {e}")
 
     def on_save_as(self, event=None):
-        # 中心トピックからデフォルトファイル名を生成
         default_name = self.model.root.text
-        # ファイル名に使えない文字を除去
         default_name = re.sub(r'[\\/:*?"<>|]', '', default_name)
-        # 20文字までに制限
         if len(default_name) > 20:
             default_name = default_name[:20]
         
@@ -301,14 +287,18 @@ class PersistenceHandler:
         )
         
         if file_path:
-            try:
-                data = self.model.save()
-                with open(file_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False, indent=4)
-                self.current_file_path = file_path
-                messagebox.showinfo("保存", f"別名で保存が完了しました。\n{file_path}")
-            except Exception as e:
-                messagebox.showerror("エラー", f"保存に失敗しました: {e}")
+            self._write_to_file(file_path, "別名で保存が完了しました。")
+
+    def _write_to_file(self, file_path, success_msg):
+        """共通のファイル書き込み処理"""
+        try:
+            data = self.model.save()
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+            self.current_file_path = file_path
+            messagebox.showinfo("保存", f"{success_msg}\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("エラー", f"保存に失敗しました: {e}")
 
     def on_open(self, event=None):
         file_path = filedialog.askopenfilename(
@@ -432,7 +422,7 @@ class MindMapView:
 
     def _navigate(self, direction):
         self.selected_node = self.navigator.navigate(self.selected_node, direction)
-        self.render()
+        self.render(force_center=True)
 
     def _on_load_complete(self, root_node):
         self.selected_node = root_node
@@ -447,52 +437,59 @@ class MindMapView:
             return "break" # 基本的にマインドマップの操作はここで完結させる
         return wrapper
 
-    def render(self):
+    def render(self, force_center=False):
         self.graphics.clear()
+        w, h = self._get_canvas_size()
         
-        # キャンバスの現在のサイズを正確に取得
-        self.root.update_idletasks()
-        w = self.canvas.winfo_width()
-        h = self.canvas.winfo_height()
-        
-        # fallback
-        if w < 100: w = 1000
-        if h < 100: h = 800
-        
-        # レイアウト計算 (キャンバスの中央を基準にする)
-        self.layout_engine.apply_layout(self.model, self.graphics, w / 2, h / 2)
+        # レイアウト計算: ウィンドウサイズに依存しない固定の基準点を使用
+        logical_center_x, logical_center_y = 5000, 5000
+        self.layout_engine.apply_layout(self.model, self.graphics, logical_center_x, logical_center_y)
         
         # 全ノード描画
         self._draw_subtree(self.model.root)
         
-        # スクロール範囲の設定を動的に行う
+        # スクロールと自動センタリング
+        self._update_scroll_and_focus(w, h, force_center)
+
+    def _get_canvas_size(self):
+        self.root.update_idletasks()
+        w = max(100, self.canvas.winfo_width())
+        h = max(100, self.canvas.winfo_height())
+        return w, h
+
+    def _update_scroll_and_focus(self, w, h, force_center=False):
         bbox = self.canvas.bbox("all")
-        if bbox:
-            # コンテンツの周囲に適切な余白（500px程度）を設ける
-            margin = 500
-            new_sr = (bbox[0] - margin, bbox[1] - margin, bbox[2] + margin, bbox[3] + margin)
-            self.canvas.config(scrollregion=new_sr)
-            
-            sr_w = new_sr[2] - new_sr[0]
-            sr_h = new_sr[3] - new_sr[1]
+        if not bbox: return
+        
+        # コンテンツ周囲に余白
+        margin = 500
+        new_sr = (bbox[0] - margin, bbox[1] - margin, bbox[2] + margin, bbox[3] + margin)
+        self.canvas.config(scrollregion=new_sr)
+        
+        if self.first_render:
+            self.canvas.update_idletasks() # 表示状態を確定
+            bbox = self.canvas.bbox("all") # 再計算後のbboxを取得
+            if bbox:
+                new_sr = (bbox[0] - margin, bbox[1] - margin, bbox[2] + margin, bbox[3] + margin)
+                self.canvas.config(scrollregion=new_sr)
+            self._center_on_root(new_sr, w, h)
+            self.first_render = False
+        
+        self.ensure_node_visible(self.selected_node, force_center=force_center)
 
-            # 初回起動時のみ中央に移動
-            if self.first_render:
-                # rootを画面中央に持ってくるための比率を計算
-                # (root.x - sr_x1) が 0〜sr_w の間のどこにあるか
-                fraction_x = (self.model.root.x - new_sr[0] - w/2) / sr_w
-                fraction_y = (self.model.root.y - new_sr[1] - h/2) / sr_h
-                
-                self.canvas.xview_moveto(max(0, fraction_x))
-                self.canvas.yview_moveto(max(0, fraction_y))
-                self.first_render = False
-            
-            # 選択中のノードを画面内に収める
-            self.ensure_node_visible(self.selected_node)
+    def _center_on_root(self, sr, w, h):
+        sr_w, sr_h = sr[2] - sr[0], sr[3] - sr[1]
+        fraction_x = (self.model.root.x - sr[0] - w/2) / sr_w
+        fraction_y = (self.model.root.y - sr[1] - h/2) / sr_h
+        self.canvas.xview_moveto(max(0, fraction_x))
+        self.canvas.yview_moveto(max(0, fraction_y))
 
-    def ensure_node_visible(self, node: Node):
+    def ensure_node_visible(self, node: Node, force_center=False):
         """指定したノードが画面外にある場合、見える位置までスクロールする"""
         if not node or not self.canvas.cget("scrollregion"): return
+        
+        # scrollregionの変更を反映させる
+        self.canvas.update_idletasks()
         
         # キャンバス上の現在の表示領域を取得 (比率 0.0 to 1.0)
         vx1, vx2 = self.canvas.xview()
@@ -515,11 +512,18 @@ class MindMapView:
         view_h_ratio = h / sr_h
         
         margin = 0.05
+        
+        # すでに十分見えている場合は何もしない（ジャンプ防止）
+        if not force_center:
+            if vx1 + margin <= node_rel_x <= vx2 - margin and \
+               vy1 + margin <= node_rel_y <= vy2 - margin:
+                return
+
         # 画面外（または端に近い）なら移動
-        if node_rel_x < vx1 + margin or node_rel_x > vx2 - margin:
+        if force_center or node_rel_x < vx1 + margin or node_rel_x > vx2 - margin:
             self.canvas.xview_moveto(max(0, node_rel_x - view_w_ratio / 2))
             
-        if node_rel_y < vy1 + margin or node_rel_y > vy2 - margin:
+        if force_center or node_rel_y < vy1 + margin or node_rel_y > vy2 - margin:
             self.canvas.yview_moveto(max(0, node_rel_y - view_h_ratio / 2))
 
     def _draw_subtree(self, node: Node):

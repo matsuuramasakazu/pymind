@@ -44,10 +44,6 @@ class LayoutEngine:
         # 各サイド（右・左）において、中央グループが膨らんだ場合に上下を適切に押し出す
         for side, groups in [('right', r_groups), ('left', l_groups)]:
             h_mid = self._get_group_height(groups[2])
-            h_top = self._get_group_height(groups[0])
-            h_btm = self._get_group_height(groups[1])
-            
-            # 中央セクターの境界（中心からの距離）
             mid_boundary = max(root.height / 2, h_mid / 2)
             
             # 1. 中央セクター
@@ -56,12 +52,14 @@ class LayoutEngine:
             
             # 2. 上部セクター
             if groups[0]:
+                h_top = self._get_group_height(groups[0])
                 # 中央境界よりさらに上に配置
                 start_y_top = center_y - mid_boundary - self.v_gap - h_top/2
                 self._layout_branch(groups[0], center_x, start_y_top, side)
                 
             # 3. 下部セクター
             if groups[1]:
+                h_btm = self._get_group_height(groups[1])
                 # 中央境界よりさらに下に配置
                 start_y_btm = center_y + mid_boundary + self.v_gap + h_btm/2
                 self._layout_branch(groups[1], center_x, start_y_btm, side)

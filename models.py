@@ -45,6 +45,21 @@ class Node:
         else:
              self.direction = new_parent.direction
 
+    def update_direction_recursive(self, direction):
+        """ノードとその子孫の方向を再帰的に更新"""
+        self.direction = direction
+        for child in self.children:
+            child.update_direction_recursive(direction)
+
+    def is_descendant_of(self, potential_ancestor):
+        """このノードが指定したノードの子孫かどうかをチェック"""
+        curr = self
+        while curr:
+            if curr == potential_ancestor:
+                return True
+            curr = curr.parent
+        return False
+
     def to_dict(self) -> dict:
         """シリアライズ用の辞書変換"""
         return {

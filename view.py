@@ -316,6 +316,9 @@ class PersistenceHandler:
                 messagebox.showerror("エラー", f"読み込みに失敗しました: {e}")
 
 class MindMapView:
+    LOGICAL_CENTER_X = 5000
+    LOGICAL_CENTER_Y = 5000
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("pymind - Python Mind Map Tool")
@@ -442,8 +445,7 @@ class MindMapView:
         w, h = self._get_canvas_size()
         
         # レイアウト計算: ウィンドウサイズに依存しない固定の基準点を使用
-        logical_center_x, logical_center_y = 5000, 5000
-        self.layout_engine.apply_layout(self.model, self.graphics, logical_center_x, logical_center_y)
+        self.layout_engine.apply_layout(self.model, self.graphics, self.LOGICAL_CENTER_X, self.LOGICAL_CENTER_Y)
         
         # 全ノード描画
         self._draw_subtree(self.model.root)
@@ -479,8 +481,8 @@ class MindMapView:
 
     def _center_on_root(self, sr, w, h):
         sr_w, sr_h = sr[2] - sr[0], sr[3] - sr[1]
-        fraction_x = (self.model.root.x - sr[0] - w/2) / sr_w
-        fraction_y = (self.model.root.y - sr[1] - h/2) / sr_h
+        fraction_x = (self.LOGICAL_CENTER_X - sr[0] - w/2) / sr_w
+        fraction_y = (self.LOGICAL_CENTER_Y - sr[1] - h/2) / sr_h
         self.canvas.xview_moveto(max(0, fraction_x))
         self.canvas.yview_moveto(max(0, fraction_y))
 

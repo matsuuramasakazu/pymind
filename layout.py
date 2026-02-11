@@ -68,18 +68,9 @@ class LayoutEngine:
         """ルート直下の子ノードを上下中の3つのグループに分ける"""
         # 0:上, 1:下, 2:中
         groups = {0: [], 1: [], 2: []}
-        for n in nodes:
-            try:
-                # 元のロジックを継承: インデックスによってグループ分け
-                # 今後ここを刷新しやすくする
-                idx = n.parent.children.index(n)
-                # ルートの子ノード全体の中でのインデックスではなく、
-                # そのサイド内でのインデックスをベースにするためにサイドのリスト内でのインデックスを取得
-                side_siblings = [c for c in n.parent.children if c.direction == n.direction]
-                side_idx = side_siblings.index(n)
-                groups[side_idx % 3].append(n)
-            except (ValueError, AttributeError):
-                groups[2].append(n)
+        for i, n in enumerate(nodes):
+            # サイド内のインデックスに基づいて3つのセクター（上・下・中）に振り分ける
+            groups[i % 3].append(n)
         return groups
 
     def _get_group_height(self, nodes: List[Node]) -> float:

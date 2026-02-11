@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import json
+import re
 from models import MindMapModel, Node
 from graphics import GraphicsEngine
 from layout import LayoutEngine
@@ -265,18 +266,47 @@ class PersistenceHandler:
     def __init__(self, model, render_callback):
         self.model = model
         self.render_callback = render_callback
+        self.current_file_path = None
 
     def on_save(self, event=None):
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
-        )
+        if self.current_file_path:
+            file_path = self.current_file_path
+        else:
+            self.on_save_as(event)
+            return
+        
         if file_path:
             try:
                 data = self.model.save()
                 with open(file_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=4)
-                messagebox.showinfo("保存", "保存が完了しました。")
+                self.current_file_path = file_path
+                messagebox.showinfo("保存", f"保存が完了しました。\n{file_path}")
+            except Exception as e:
+                messagebox.showerror("エラー", f"保存に失敗しました: {e}")
+
+    def on_save_as(self, event=None):
+        # 中心トピックからデフォルトファイル名を生成
+        default_name = self.model.root.text
+        # ファイル名に使えない文字を除去
+        default_name = re.sub(r'[\\/:*?"<>|]', '', default_name)
+        # 20文字までに制限
+        if len(default_name) > 20:
+            default_name = default_name[:20]
+        
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".json",
+            initialfile=default_name,
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            try:
+                data = self.model.save()
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                self.current_file_path = file_path
+                messagebox.showinfo("保存", f"別名で保存が完了しました。\n{file_path}")
             except Exception as e:
                 messagebox.showerror("エラー", f"保存に失敗しました: {e}")
 
@@ -289,6 +319,7 @@ class PersistenceHandler:
                 with open(file_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.model.load(data)
+                self.current_file_path = file_path
                 self.render_callback(root_node=self.model.root)
                 messagebox.showinfo("読み込み", "読み込みが完了しました。")
             except Exception as e:
@@ -340,6 +371,7 @@ class MindMapView:
         bind_key("<F2>", self.on_edit_node)
         bind_key("<Delete>", self.on_delete_node)
         bind_key("<Control-s>", self.persistence.on_save)
+        bind_key("<Control-S>", self.persistence.on_save_as) # Ctrl+Shift+S
         bind_key("<Control-o>", self.persistence.on_open)
         bind_key("<Up>", lambda e: self._navigate("up"))
         bind_key("<Down>", lambda e: self._navigate("down"))
@@ -528,6 +560,7 @@ class MindMapView:
         filemenu = tk.Menu(menubar, tearoff=0)
         filemenu.add_command(label="開く (Ctrl+O)", command=self.persistence.on_open)
         filemenu.add_command(label="保存 (Ctrl+S)", command=self.persistence.on_save)
+        filemenu.add_command(label="名前を付けて保存 (Ctrl+Shift+S)", command=self.persistence.on_save_as)
         filemenu.add_separator()
         filemenu.add_command(label="終了", command=self.root.quit)
         menubar.add_cascade(label="ファイル", menu=filemenu)

@@ -51,16 +51,128 @@ class GraphicsEngine:
         points = [x1+radius, y1, x1+radius, y1, x2-radius, y1, x2-radius, y1, x2, y1, x2, y1+radius, x2, y1+radius, x2, y2-radius, x2, y2-radius, x2, y2, x2-radius, y2, x2-radius, y2, x1+radius, y2, x1+radius, y2, x1, y2, x1, y2-radius, x1, y2-radius, x1, y1+radius, x1, y1+radius, x1, y1]
         return self.canvas.create_polygon(points, **kwargs, smooth=True)
 
-    def get_text_size(self, text: str, font, max_width: int = 250):
-        temp_id = self.canvas.create_text(0, 0, text=text, font=font, width=max_width)
-        bbox = self.canvas.bbox(temp_id)
-        self.canvas.delete(temp_id)
-        if bbox:
-            w = bbox[2] - bbox[0] + 10
-            # 下線との重なりを防ぐために高さのパディングを増やす (12px)
-            h = bbox[3] - bbox[1] + 12
-            return w, h
-        return 100, 35
+    def _parse_markup(self, text: str):
+        """
+        マークアップを解析してセグメントのリストを返す。
+        セグメントは (text, font_style, underline, color) のリスト。
+        """
+        import re
+        # タグの分割用正規表現
+        pattern = re.compile(r'(<br/?>|<b>|</b>|<i>|</i>|<u>|</u>|<c:#[0-9a-fA-F]{6}>|</c>)')
+        parts = pattern.split(text)
+        
+        segments = []
+        current_bold = False
+        current_italic = False
+        current_underline = False
+        current_color = self.text_color
+        
+        color_stack = []
+        
+        for part in parts:
+            if not part: continue
+            
+            if part == "<b>": current_bold = True
+            elif part == "</b>": current_bold = False
+            elif part == "<i>": current_italic = True
+            elif part == "</i>": current_italic = False
+            elif part == "<u>": current_underline = True
+            elif part == "</u>": current_underline = False
+            elif part.startswith("<c:"):
+                color_stack.append(current_color)
+                current_color = part[3:-1]
+            elif part == "</c>":
+                if color_stack: current_color = color_stack.pop()
+                else: current_color = self.text_color
+            elif part in ("<br>", "<br/>"):
+                segments.append(("\n", "normal", False, current_color))
+            else:
+                # テキスト部分
+                style = []
+                if current_bold: style.append("bold")
+                if current_italic: style.append("italic")
+                font_style = " ".join(style) if style else "normal"
+                segments.append((part, font_style, current_underline, current_color))
+        
+        return segments
+
+    def get_text_size(self, text: str, base_font, max_width: int = 250):
+        """マルチラインとマークアップを考慮したサイズ計算"""
+        lines = text.split("\n")
+        max_w = 0
+        total_h = 0
+        
+        family = base_font[0]
+        size = base_font[1]
+        
+        for line in lines:
+            segments = self._parse_markup(line)
+            line_w = 0
+            line_h = 0
+            for txt, style, underline, color in segments:
+                font = (family, size, style) if style != "normal" else (family, size)
+                temp_id = self.canvas.create_text(0, 0, text=txt, font=font)
+                bbox = self.canvas.bbox(temp_id)
+                self.canvas.delete(temp_id)
+                if bbox:
+                    line_w += (bbox[2] - bbox[0])
+                    line_h = max(line_h, bbox[3] - bbox[1])
+            max_w = max(max_w, line_w)
+            total_h += (line_h if line_h > 0 else size + 10)
+            
+        return max(100, max_w + 20), max(35, total_h + 12)
+
+    def _draw_rich_text(self, x, y, text, base_font, tags):
+        """リッチテキストをキャンバスに描画する"""
+        lines = text.split("\n")
+        family = base_font[0]
+        size = base_font[1]
+        
+        # 全体の高さを計算して開始Y座標を調整
+        w, h = self.get_text_size(text, base_font)
+        curr_y = y - h/2 + 10
+        
+        item_ids = []
+        
+        for line in lines:
+            segments = self._parse_markup(line)
+            # 行の幅を計算して中央寄せの開始Xを決定
+            line_w = 0
+            temp_items = []
+            for txt, style, underline, color in segments:
+                font = (family, size, style) if style != "normal" else (family, size)
+                tid = self.canvas.create_text(0, 0, text=txt, font=font)
+                bbox = self.canvas.bbox(tid)
+                self.canvas.delete(tid)
+                if bbox:
+                    line_w += (bbox[2] - bbox[0])
+                    temp_items.append((txt, font, underline, color, bbox[2]-bbox[0], bbox[3]-bbox[1]))
+            
+            curr_x = x - line_w / 2
+            max_line_h = 0
+            
+            for txt, font, underline, color, seg_w, seg_h in temp_items:
+                # テキスト描画
+                tid = self.canvas.create_text(
+                    curr_x + seg_w/2, curr_y + seg_h/2,
+                    text=txt, font=font, fill=color, tags=tags, anchor="center"
+                )
+                item_ids.append(tid)
+                
+                if underline:
+                    # アンダーライン描画
+                    lx1 = curr_x
+                    lx2 = curr_x + seg_w
+                    ly = curr_y + seg_h - 2
+                    uid = self.canvas.create_line(lx1, ly, lx2, ly, fill=color, width=1, tags=tags)
+                    item_ids.append(uid)
+                
+                curr_x += seg_w
+                max_line_h = max(max_line_h, seg_h)
+            
+            curr_y += (max_line_h if max_line_h > 0 else size + 10)
+            
+        return item_ids
 
     def _calculate_bezier_points(self, p0, p1, p2, p3, steps):
         """ベジェ曲線の点列を計算する"""
@@ -122,12 +234,13 @@ class GraphicsEngine:
 
         self.node_items[node.id] = items
         
-        # テキスト
-        text_id = self.canvas.create_text(
-            x, y, text=node.text, fill=self.text_color, font=font,
-            width=200, justify="center", tags=("text", node.id)
+        # テキスト（リッチテキスト対応）
+        text_item_ids = self._draw_rich_text(
+            x, y, node.text, font, tags=("text", node.id)
         )
-        self.text_items[node.id] = text_id
+        self.text_items[node.id] = text_item_ids[0] if text_item_ids else None
+        # 全てのアイテムを管理可能にするために node_items に追加
+        self.node_items[node.id].extend(text_item_ids)
         
         if node.parent:
             self.draw_connection(node)

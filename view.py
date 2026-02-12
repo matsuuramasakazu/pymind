@@ -24,15 +24,23 @@ class NodeEditor:
         if self.editing_entry:
             return
             
-        # Entryウィジェットの作成
-        entry = tk.Entry(self.canvas, justify="center", font=self.graphics.font, 
+        # Textウィジェットの作成 (Entryのかわりに)
+        # 高さは行数に応じて動的に調整するが、最初は1か2程度
+        lines = node.text.count("\n") + 1
+        height = min(10, max(1, lines))
+        
+        entry = tk.Text(self.canvas, font=self.graphics.font, 
                          bg="white", fg="black", insertbackground="black",
-                         relief="flat", highlightbackground="#0078d7", highlightthickness=2)
-        entry.insert(0, node.text)
-        entry.select_range(0, tk.END)
+                         relief="flat", highlightbackground="#0078d7", highlightthickness=2,
+                         padx=5, pady=5)
+        entry.insert("1.0", node.text)
+        entry.tag_add("sel", "1.0", "end")
+        
+        # テキストの幅に合わせて調整
+        edit_width = max(150, node.width + 30)
         
         self.window_id = self.canvas.create_window(
-            node.x, node.y, window=entry, width=max(120, node.width + 20), anchor="center"
+            node.x, node.y, window=entry, width=edit_width, height=height*25 + 20, anchor="center"
         )
         self.editing_entry = entry
         self.finishing = False
@@ -40,9 +48,11 @@ class NodeEditor:
         def set_focus():
             if self.editing_entry == entry:
                 entry.focus_set()
+                entry.see("1.0")
         self.root.after(100, set_focus)
         
-        entry.bind("<Return>", lambda e: self.finish_edit(node))
+        # Enterで改行、Ctrl+EnterまたはFocusOutで完了
+        entry.bind("<Control-Return>", lambda e: self.finish_edit(node))
         entry.bind("<Escape>", lambda e: self.cancel_edit())
         entry.bind("<FocusOut>", lambda e: self.finish_edit(node))
         entry.bind("<Tab>", lambda e: "break")
@@ -52,8 +62,9 @@ class NodeEditor:
             return "break"
         self.finishing = True
         
-        new_text = self.editing_entry.get()
-        if new_text:
+        # Textウィジェットからテキスト取得 (最後の改行を除く)
+        new_text = self.editing_entry.get("1.0", "end-1c")
+        if new_text is not None:
             node.text = new_text
             
         self._cleanup()
@@ -274,7 +285,13 @@ class PersistenceHandler:
 
     def on_save_as(self, event=None):
         default_name = self.model.root.text
+        # 改行をスペースに置換
+        default_name = default_name.replace("\n", " ").replace("\r", "")
+        # マークアップタグを除去 (e.g. <b>...</b>)
+        default_name = re.sub(r'<[^>]+>', '', default_name)
+        # Windows等で禁止されている文字を除去
         default_name = re.sub(r'[\\/:*?"<>|]', '', default_name)
+        
         if len(default_name) > 20:
             default_name = default_name[:20]
         
@@ -378,6 +395,7 @@ class MindMapView:
 
         # マウスイベントのバインド
         self.canvas.bind("<Button-1>", self._on_canvas_click)
+        self.canvas.bind("<Double-Button-1>", self._on_canvas_double_click)
         self.canvas.bind("<B1-Motion>", lambda e: self.drag_handler.handle_motion(e))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.drag_handler.handle_drop(e))
 
@@ -403,6 +421,17 @@ class MindMapView:
                 self.render()
                 # ドラッグ開始の準備
                 self.drag_handler.start_drag(event, self.selected_node)
+
+    def _on_canvas_double_click(self, event):
+        """ダブルクリックで編集モードを開始"""
+        cx = self.canvas.canvasx(event.x)
+        cy = self.canvas.canvasy(event.y)
+        clicked_node = self.find_node_at(cx, cy)
+        
+        if clicked_node:
+            self.selected_node = clicked_node
+            self.render()
+            self.on_edit_node(None)
 
     def find_node_at(self, x, y):
         """指定座標にあるノードを返す"""

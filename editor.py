@@ -47,8 +47,12 @@ class NodeEditor:
                 entry.see("1.0")
         self.root.after(100, set_focus)
         
-        # Enterで改行、Ctrl+EnterまたはFocusOutで完了
-        entry.bind("<Control-Return>", lambda e: self.finish_edit(node))
+        # Enterで完了、Ctrl+Enterで改行
+        entry.bind("<Return>", lambda e: self.finish_edit(node))
+        def insert_newline(e):
+            entry.insert("insert", "\n")
+            return "break"
+        entry.bind("<Control-Return>", insert_newline)
         entry.bind("<Escape>", lambda e: self.cancel_edit())
         entry.bind("<FocusOut>", lambda e: self.finish_edit(node))
         entry.bind("<Tab>", lambda e: "break")

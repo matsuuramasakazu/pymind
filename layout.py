@@ -14,7 +14,7 @@ class LayoutEngine:
         font = graphics.root_font if node.parent is None else graphics.font
         node.width, node.height = graphics.get_text_size(node.text, font)
         
-        if not node.children:
+        if not node.children or node.collapsed:
             node.subtree_height = node.height
             return node.height
             
@@ -95,7 +95,7 @@ class LayoutEngine:
             node.y = current_y + node.subtree_height / 2
             
             # 孫以降の再帰配置
-            if node.children:
+            if node.children and not node.collapsed:
                 self._layout_branch(node.children, node.x, node.y, direction)
             
             current_y += node.subtree_height + self.spacing_y

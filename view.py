@@ -97,6 +97,16 @@ class MindMapView:
             if clicked_node:
                 self.selected_node = clicked_node
                 self.render()
+                
+                # アイコンクリックの判定
+                items = self.canvas.find_overlapping(cx-2, cy-2, cx+2, cy+2)
+                for item_id in items:
+                    tags = self.canvas.gettags(item_id)
+                    if "collapse_icon" in tags:
+                        clicked_node.collapsed = not clicked_node.collapsed
+                        self.render()
+                        return "break"
+
                 # ドラッグ開始の準備
                 self.drag_handler.start_drag(event, self.selected_node)
 
@@ -235,12 +245,17 @@ class MindMapView:
 
     def _draw_subtree(self, node: Node):
         self.graphics.draw_node(node, is_selected=(node == self.selected_node))
-        for child in node.children:
-            self._draw_subtree(child)
+        if not node.collapsed:
+            for child in node.children:
+                self._draw_subtree(child)
 
     def on_add_child(self, event):
         if self.editor.is_editing(): return
         
+        # 折りたたまれている場合は展開する
+        if self.selected_node.collapsed:
+            self.selected_node.collapsed = False
+            
         new_node = self.model.add_node(self.selected_node)
         self.selected_node = new_node
         self.render()

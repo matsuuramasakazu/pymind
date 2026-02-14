@@ -16,6 +16,7 @@ class Node:
         self.width = 100
         self.height = 40
         self.color = None
+        self.collapsed = False
 
     def add_child(self, text: str, direction: Optional[str] = None) -> 'Node':
         child = Node(text, parent=self)
@@ -44,6 +45,10 @@ class Node:
              self.direction = None # 再計算させる
         else:
              self.direction = new_parent.direction
+        
+        # 移動先の親が折りたたまれている場合は展開する
+        if new_parent.collapsed:
+            new_parent.collapsed = False
 
     def update_direction_recursive(self, direction):
         """ノードとその子孫の方向を再帰的に更新"""
@@ -67,6 +72,7 @@ class Node:
             "text": self.text,
             "direction": self.direction,
             "color": self.color,
+            "collapsed": self.collapsed,
             "children": [child.to_dict() for child in self.children]
         }
 
@@ -77,6 +83,7 @@ class Node:
         node.id = data.get("id", str(uuid.uuid4()))
         node.direction = data.get("direction")
         node.color = data.get("color")
+        node.collapsed = data.get("collapsed", False)
         for child_data in data.get("children", []):
             child = cls.from_dict(child_data, parent=node)
             node.children.append(child)

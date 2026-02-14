@@ -97,10 +97,20 @@ class DragDropHandler:
                 dragged_node.direction = self.model.get_balanced_direction(exclude_node=dragged_node)
             else:
                 dragged_node.direction = target_node.direction
-            dragged_node.update_direction_recursive(dragged_node.direction)
             
-            self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
-            self.layout_engine.apply_layout(self.model, self.graphics, self.logical_center_x, self.logical_center_y)
+            if target_node.collapsed:
+                # 親が折りたたまれている場合は手動で座標を計算
+                margin = 30
+                if dragged_node.direction == 'left':
+                    dragged_node.x = target_node.x - target_node.width/2 - margin - dragged_node.width/2
+                else:
+                    dragged_node.x = target_node.x + target_node.width/2 + margin + dragged_node.width/2
+                dragged_node.y = target_node.y
+            else:
+                # 通常のレイアウト計算
+                dragged_node.update_direction_recursive(dragged_node.direction)
+                self.layout_engine.calculate_subtree_height(self.model.root, self.graphics)
+                self.layout_engine.apply_layout(self.model, self.graphics, self.logical_center_x, self.logical_center_y)
             
             sx, sy = base_x + (dragged_node.x - target_node.x), base_y + (dragged_node.y - target_node.y)
             sw, sh = dragged_node.width, dragged_node.height

@@ -242,6 +242,9 @@ class GraphicsEngine:
         # 全てのアイテムを管理可能にするために node_items に追加
         self.node_items[node.id].extend(text_item_ids)
         
+        if node.children and node.parent:
+            self._draw_collapse_icon(node)
+        
         if node.parent:
             self.draw_connection(node)
 
@@ -296,7 +299,7 @@ class GraphicsEngine:
         return (px, py), (cp1x, cp1y), (cp2x, cp2y), (nx, ny), False # not_tapered
 
     def draw_connection(self, node: Node):
-        if not node.parent: return
+        if not node.parent or node.parent.collapsed: return
         if node.id in self.line_items:
             for item in self.line_items[node.id]: self.canvas.delete(item)
         
@@ -355,6 +358,40 @@ class GraphicsEngine:
             )
             items.append(line_id)
         return items
+
+    def _draw_collapse_icon(self, node: Node):
+        """折り畳み/展開用のアイコンを描画する"""
+        # 実際には方向(direction)に基づいた方が正確
+        if node.direction == 'left':
+            x = node.x - node.width/2 - 10
+        else:
+            x = node.x + node.width/2 + 10
+            
+        y = node.y + node.height/2
+        radius = 8
+        
+        color = self._get_node_color(node)
+        
+        # アイコンの円
+        circle_id = self.canvas.create_oval(
+            x - radius, y - radius, x + radius, y + radius,
+            fill="white", outline=color, width=1, tags=("collapse_icon", node.id)
+        )
+        self.node_items[node.id].append(circle_id)
+        
+        if node.collapsed:
+            # 折りたたみ中：子ノードの数を表示
+            count = len(node.children)
+            text_id = self.canvas.create_text(
+                x, y, text=str(count), font=("Yu Gothic", 7), fill=color, tags=("collapse_icon", node.id)
+            )
+            self.node_items[node.id].append(text_id)
+        else:
+            # 展開中：マイナス記号を表示
+            line_id = self.canvas.create_line(
+                x - 4, y, x + 4, y, fill=color, width=1, tags=("collapse_icon", node.id)
+            )
+            self.node_items[node.id].append(line_id)
 
     def clear(self):
         self.canvas.delete("all")
